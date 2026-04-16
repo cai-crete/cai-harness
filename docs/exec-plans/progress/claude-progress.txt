@@ -1,0 +1,23 @@
+[2026-04-16] Hook 설정 작업
+
+## 방금 무엇을 했는지
+- .claude/CLAUDE.md 내용 개편: 첫 번째 항목으로 n#-project-name 폴더 구조 안내 병합, 3번째 항목을 exec-plan 생성 지시로 변경
+- n#-project-name/ 빈 초기 구조 생성 (src/, protocol/, .env.local)
+- ARCHITECTURE.md 264번째 줄 노드 폴더 다이어그램을 실제 구조(src/, protocol/, .env.local)로 변경
+- docs/product-specs/index.md 에 프로토콜 참조 경로 안내 추가
+- docs/product-specs/node-spec-template.md 에서 protocol-design-guide.md 경로를 product-specs/ 로 변경
+- CLAUDE.md/AGENTS.md/ARCHITECTURE.md 자동 발동 hook 설정:
+  - .claude/hooks/session-init.sh 생성 (UserPromptSubmit 훅)
+  - .claude/hooks/progress-remind.sh 생성 (Stop 훅)
+  - .claude/settings.json 업데이트 (UserPromptSubmit 훅 추가, Stop 훅 1개 추가)
+
+## 어디까지 완료됐는지
+- 하네스 설정 파일 정비 완료
+- Hook 자동화 설정 완료 (5개 훅 활성화)
+  - UserPromptSubmit: session-init.sh (세션 초기화)
+  - Stop: ralph-wiggum + progress-remind.sh
+  - PostToolUse: Protocol 파일 감지 + Handoff 파일 감지
+
+## 다음에 무엇을 해야 하는지
+- 노드 개발 시작 대기 중 (사용자가 n#-project-name과 프로젝트명 알려줄 예정)
+- 노드 개발 시작 시: product-spec 작성 → AGENT A 발동 → Protocol 작성 → AGENT B 검증

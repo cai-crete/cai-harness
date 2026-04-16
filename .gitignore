@@ -2,3 +2,20 @@
 .claude/*.local.md
 .claude/*.tmp.*
 .claude/settings.local.json
+
+# Environment files
+.env*
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
