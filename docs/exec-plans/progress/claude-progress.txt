@@ -1,23 +1,48 @@
-[2026-04-16] Hook 설정 작업
+[2026-04-17] sketch-to-image — N15 편집(+) 버튼 + 플로팅 바 barScale 제한
 
 ## 방금 무엇을 했는지
-- .claude/CLAUDE.md 내용 개편: 첫 번째 항목으로 n#-project-name 폴더 구조 안내 병합, 3번째 항목을 exec-plan 생성 지시로 변경
-- n#-project-name/ 빈 초기 구조 생성 (src/, protocol/, .env.local)
-- ARCHITECTURE.md 264번째 줄 노드 폴더 다이어그램을 실제 구조(src/, protocol/, .env.local)로 변경
-- docs/product-specs/index.md 에 프로토콜 참조 경로 안내 추가
-- docs/product-specs/node-spec-template.md 에서 protocol-design-guide.md 경로를 product-specs/ 로 변경
-- CLAUDE.md/AGENTS.md/ARCHITECTURE.md 자동 발동 hook 설정:
-  - .claude/hooks/session-init.sh 생성 (UserPromptSubmit 훅)
-  - .claude/hooks/progress-remind.sh 생성 (Stop 훅)
-  - .claude/settings.json 업데이트 (UserPromptSubmit 훅 추가, Stop 훅 1개 추가)
+
+### N15: sketch_generated → upload 승격 버튼
+
+**수정 내용 (page.tsx)**
+
+1. import: `Pencil` 추가 (lucide-react)
+
+2. 플로팅 컨트롤 바 — sketch_generated 전용 [편집(+)] 버튼 추가
+   - 위치: [편집(+)] [다운로드] [휴지통] 순
+   - 클릭 시:
+     - historyStates에 현재 상태 저장 (setRedoStates 초기화)
+     - 해당 아이템 type → 'upload' 변경
+     - canvasMode → 'pen' 전환
+
+3. 플로팅 바 크기 줌 범위 제한
+   - `barScale = clamp(scale, 0.5, 1.5)`
+   - ctrlIconSize, ctrlBtnSize, ctrlBarH, ctrlGap, ctrlPadX 모두 barScale 기준으로 변경
+   - 플로팅 바 내부 borderRadius, border, top 위치도 barScale 적용
+   - 줌 50% 이하/150% 이상에서 바 크기 고정
+
+4. upload 타입 연쇄 활성화
+   - `findArtboardAt`: `artboard || upload` 조건으로 확장 → 펜/지우개 도구 동작
+   - 픽셀 캔버스 오버레이: `artboard || upload` 조건으로 확장 → 드로잉 캔버스 표시
+   - `handleGenerate`: `upload` 타입 허용, artboard와 동일하게 처리 (src + sketchCanvas 합성)
 
 ## 어디까지 완료됐는지
-- 하네스 설정 파일 정비 완료
-- Hook 자동화 설정 완료 (5개 훅 활성화)
-  - UserPromptSubmit: session-init.sh (세션 초기화)
-  - Stop: ralph-wiggum + progress-remind.sh
-  - PostToolUse: Protocol 파일 감지 + Handoff 파일 감지
+
+### Protocol
+- protocol-sketch-to-image-v2.3.txt — Loop A PASS (5/5), DEPLOYMENT APPROVED
+
+### Node App (sketch-to-image/)
+- src/lib/prompt.ts ✓
+- src/app/api/sketch-to-image/route.ts ✓
+- src/hooks/useBlueprintGeneration.ts ✓
+- src/app/page.tsx ✓ (N13 이동 + N14 커서/선택 + N15 편집(+) 버튼 완료)
+- src/components/AppHeader.tsx ✓
+- src/components/LeftToolbar.tsx ✓
+- src/components/RightSidebar.tsx ✓
+- src/components/panels/SketchToImagePanel.tsx ✓
+- src/components/InfiniteGrid.tsx ✓
+- src/app/globals.css ✓
+- .env.local ✓
 
 ## 다음에 무엇을 해야 하는지
-- 노드 개발 시작 대기 중 (사용자가 n#-project-name과 프로젝트명 알려줄 예정)
-- 노드 개발 시작 시: product-spec 작성 → AGENT A 발동 → Protocol 작성 → AGENT B 검증
+- 사용자 지시 대기
