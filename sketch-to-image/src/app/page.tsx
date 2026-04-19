@@ -14,6 +14,7 @@ import AppHeader from '@/components/AppHeader';
 import RightSidebar from '@/components/RightSidebar';
 import { useBlueprintGeneration } from '@/hooks/useBlueprintGeneration';
 import type { CanvasItem, CanvasMode, Point } from '@/types/canvas';
+import { saveImageToDB, loadImageFromDB, deleteImageFromDB } from '@/lib/imageDB';
 
 // ─────────────────────────────────────────────
 // Constants
@@ -54,7 +55,6 @@ function clamp(val: number, min: number, max: number) {
 
 const LS_ITEMS = 'cai-canvas-items';
 const LS_VIEW = 'cai-canvas-view';
-const LS_PIXELS = 'cai-pixel-data';
 
 function lsLoadItems(): CanvasItem[] {
   if (typeof window === 'undefined') return [];
@@ -73,34 +73,14 @@ function lsLoadView(): { zoom: number; offset: Point } {
   } catch { return { zoom: 100, offset: { x: 0, y: 0 } }; }
 }
 
-function lsLoadPixels(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
-  try { return JSON.parse(localStorage.getItem(LS_PIXELS) || '{}'); }
-  catch { return {}; }
-}
-
+// Base64 src는 IndexedDB에 저장 — localStorage에는 구조 데이터만 기록
 function lsSaveItems(items: CanvasItem[]) {
-  try { localStorage.setItem(LS_ITEMS, JSON.stringify(items)); } catch { /* quota exceeded */ }
+  const stripped = items.map(i => ({ ...i, src: i.src?.startsWith('data:') ? '' : i.src }));
+  try { localStorage.setItem(LS_ITEMS, JSON.stringify(stripped)); } catch { /* quota exceeded */ }
 }
 
 function lsSaveView(zoom: number, offset: Point) {
   try { localStorage.setItem(LS_VIEW, JSON.stringify({ zoom, offset })); } catch { /* quota exceeded */ }
-}
-
-function lsSavePixel(id: string, dataUrl: string) {
-  try {
-    const map = JSON.parse(localStorage.getItem(LS_PIXELS) || '{}');
-    map[id] = dataUrl;
-    localStorage.setItem(LS_PIXELS, JSON.stringify(map));
-  } catch { /* quota exceeded */ }
-}
-
-function lsDeletePixel(id: string) {
-  try {
-    const map = JSON.parse(localStorage.getItem(LS_PIXELS) || '{}');
-    delete map[id];
-    localStorage.setItem(LS_PIXELS, JSON.stringify(map));
-  } catch { /* quota exceeded */ }
 }
 
 // ─────────────────────────────────────────────
@@ -110,11 +90,20 @@ function lsDeletePixel(id: string) {
 export default function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // Canvas transform state
-  const [canvasZoom, setCanvasZoom] = useState(100);
+  // Canvas transform state — SSR-safe initial values (localStorage loaded in mount effect)
+  const [canvasZoom, setCanvasZoom] = useState<number>(100);
   const [canvasOffset, setCanvasOffset] = useState<Point>({ x: 0, y: 0 });
   const canvasZoomRef = useRef(100);
   const canvasOffsetRef = useRef<Point>({ x: 0, y: 0 });
+
+  // mount 복원 완료 전까지 persist effect가 기본값을 덮어쓰는 것을 막는 guard
+  const isRestoredRef = useRef(false);
+
+  // Persist view (zoom + offset) whenever they change
+  useEffect(() => {
+    if (!isRestoredRef.current) return;
+    lsSaveView(canvasZoom, canvasOffset);
+  }, [canvasZoom, canvasOffset]);
 
   const updateZoom = useCallback((z: number) => {
     const clamped = clamp(z, ZOOM_MIN, ZOOM_MAX);
@@ -127,15 +116,58 @@ export default function App() {
     setCanvasOffset(o);
   }, []);
 
-  // Canvas mode & items
+  // Canvas mode & items — SSR-safe initial values (localStorage loaded in mount effect)
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('select');
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>([]);
   const canvasItemsRef = useRef<CanvasItem[]>([]);
   useEffect(() => { canvasItemsRef.current = canvasItems; }, [canvasItems]);
 
+  // Persist: src(Base64) → IndexedDB, 구조 → localStorage
+  useEffect(() => {
+    if (!isRestoredRef.current) return;
+    canvasItems.forEach(item => {
+      if (item.src?.startsWith('data:')) saveImageToDB(item.id, item.src);
+    });
+    lsSaveItems(canvasItems);
+  }, [canvasItems]);
+
+  // 마운트 시 1회: localStorage + IndexedDB에서 전체 상태 복원
+  useEffect(() => {
+    const view = lsLoadView();
+    setCanvasZoom(view.zoom);
+    setCanvasOffset(view.offset);
+    canvasZoomRef.current = view.zoom;
+    canvasOffsetRef.current = view.offset;
+
+    const items = lsLoadItems();
+    setCanvasItems(items);
+    isRestoredRef.current = true;
+
+    (async () => {
+      const updates: { id: string; src: string }[] = [];
+      for (const item of items) {
+        if (!item.src) {
+          const data = await loadImageFromDB(item.id);
+          if (data) updates.push({ id: item.id, src: data });
+        }
+      }
+      if (updates.length > 0) {
+        setCanvasItems(prev =>
+          prev.map(i => {
+            const u = updates.find(u => u.id === i.id);
+            return u ? { ...i, src: u.src } : i;
+          })
+        );
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const selectedItemIdsRef = useRef<string[]>([]);
   useEffect(() => { selectedItemIdsRef.current = selectedItemIds; }, [selectedItemIds]);
+
+  // (픽셀 캔버스 복원은 canvas ref 콜백에서 IndexedDB 비동기 로드로 처리)
 
   // Toolbar state
   const [penStrokeWidth, setPenStrokeWidth] = useState(DEFAULT_PEN_STROKE_WIDTH);
@@ -180,11 +212,14 @@ export default function App() {
   const offsetAtDragStart = useRef<Point>({ x: 0, y: 0 });
   const lastTouchDist = useRef(0);
   const lastTouchCenter = useRef<Point>({ x: 0, y: 0 });
+  const activeTouchCount = useRef(0);
 
   // Pixel drawing refs
   const artboardCanvasRefs = useRef<Map<string, HTMLCanvasElement>>(new Map());
   const activeArtboardId = useRef<string | null>(null);
   const lastDrawPoint = useRef<Point | null>(null);
+  // 아이템당 IndexedDB 픽셀 복원을 1회만 수행하기 위한 guard
+  const pixelRestoredRef = useRef<Set<string>>(new Set());
 
   // Pixel undo/redo stacks (ImageData — synchronous restore)
   type PixelEntry = { id: string; data: ImageData };
@@ -412,6 +447,8 @@ export default function App() {
     setRedoStates([]);
     setCanvasItems(prev => prev.filter(i => i.id !== id));
     setSelectedItemIds(prev => prev.filter(s => s !== id));
+    deleteImageFromDB(`pixel_${id}`);
+    pixelRestoredRef.current.delete(id);
   }, []);
 
   const handleDownloadItem = useCallback(async (item: CanvasItem) => {
@@ -536,6 +573,15 @@ export default function App() {
     }
 
     if (canvasMode === 'pan') {
+      if (e.pointerType === 'touch') {
+        activeTouchCount.current += 1;
+        // 두 번째 손가락 감지 → 핀치 줌 우선, 패닝 취소
+        if (activeTouchCount.current >= 2) {
+          isDraggingPan.current = false;
+          if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
+          return;
+        }
+      }
       isDraggingPan.current = true;
       dragStart.current = { x: e.clientX, y: e.clientY };
       offsetAtDragStart.current = { ...canvasOffsetRef.current };
@@ -545,6 +591,8 @@ export default function App() {
     }
 
     if (canvasMode === 'pen' || canvasMode === 'eraser') {
+      // 손가락 터치는 드로잉 시작 안 함 (핀치 줌 제스처 보호)
+      if (e.pointerType === 'touch') return;
       const artboard = findArtboardAt(e.clientX, e.clientY);
       if (!artboard) return;
 
@@ -617,6 +665,7 @@ export default function App() {
     }
 
     if ((canvasMode === 'pen' || canvasMode === 'eraser') && activeArtboardId.current) {
+      if (e.pointerType === 'touch') return;
       const artboard = canvasItemsRef.current.find(i => i.id === activeArtboardId.current);
       if (!artboard || !lastDrawPoint.current) return;
       const canvas = artboardCanvasRefs.current.get(artboard.id);
@@ -634,7 +683,11 @@ export default function App() {
     }
   }, [canvasMode, getCanvasCoords, getArtboardLocal, penStrokeWidth, eraserStrokeWidth, updateOffset]);
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e?: React.PointerEvent<HTMLDivElement>) => {
+    // 터치 포인터 수 감소
+    if (e?.pointerType === 'touch') {
+      activeTouchCount.current = Math.max(0, activeTouchCount.current - 1);
+    }
     if (isMovingItem.current) {
       isMovingItem.current = false;
       moveItemId.current = null;
@@ -642,12 +695,23 @@ export default function App() {
     }
     if (isResizingItem.current) {
       isResizingItem.current = false;
+      const resizedId = selectedItemIdsRef.current[0];
+      if (resizedId) {
+        const canvas = artboardCanvasRefs.current.get(resizedId);
+        if (canvas) saveImageToDB(`pixel_${resizedId}`, canvas.toDataURL('image/png'));
+        pixelRestoredRef.current.delete(resizedId);
+      }
       return;
     }
     if (isDraggingPan.current) {
       isDraggingPan.current = false;
       if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
       return;
+    }
+    // Save pixel canvas to localStorage after each stroke
+    if (activeArtboardId.current) {
+      const canvas = artboardCanvasRefs.current.get(activeArtboardId.current);
+      if (canvas) saveImageToDB(`pixel_${activeArtboardId.current}`, canvas.toDataURL('image/png'));
     }
     activeArtboardId.current = null;
     lastDrawPoint.current = null;
@@ -663,7 +727,6 @@ export default function App() {
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length !== 2) return;
-    e.preventDefault();
     const el = canvasElRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -762,6 +825,7 @@ export default function App() {
         const current = ctx.getImageData(0, 0, canvas.width, canvas.height);
         pixelRedoStack.current.push({ id: entry.id, data: current });
         ctx.putImageData(entry.data, 0, 0);
+        saveImageToDB(`pixel_${entry.id}`, canvas.toDataURL('image/png'));
       }
       setHistoryStates(h => h.slice(0, -1));
       setRedoStates(r => [...r, canvasItemsRef.current]);
@@ -783,6 +847,7 @@ export default function App() {
         const current = ctx.getImageData(0, 0, canvas.width, canvas.height);
         pixelUndoStack.current.push({ id: entry.id, data: current });
         ctx.putImageData(entry.data, 0, 0);
+        saveImageToDB(`pixel_${entry.id}`, canvas.toDataURL('image/png'));
       }
       setRedoStates(r => r.slice(0, -1));
       setHistoryStates(h => [...h, canvasItemsRef.current]);
@@ -875,10 +940,12 @@ export default function App() {
             cursor: canvasMode === 'pan' ? 'grab'
               : (canvasMode === 'pen' || canvasMode === 'eraser') ? 'none'
                 : 'default',
+            touchAction: 'none',
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
         >
@@ -923,8 +990,29 @@ export default function App() {
                           artboardCanvasRefs.current.set(item.id, el);
                           if (el.width !== Math.round(item.width)) el.width = Math.round(item.width);
                           if (el.height !== Math.round(item.height)) el.height = Math.round(item.height);
+                          // 세션 중 1회만 IndexedDB에서 픽셀 복원
+                          // else(null) 호출에서 guard를 삭제하지 않으므로 매 렌더 재로드 방지
+                          if (!pixelRestoredRef.current.has(item.id)) {
+                            pixelRestoredRef.current.add(item.id);
+                            loadImageFromDB(`pixel_${item.id}`).then(dataUrl => {
+                              if (dataUrl && el) {
+                                const img = new Image();
+                                img.onload = () => {
+                                  const ctx = el.getContext('2d');
+                                  if (ctx) {
+                                    // destination-out이 context에 남아있어도 복원이 지우기로 작동하는 현상 방지
+                                    ctx.globalCompositeOperation = 'source-over';
+                                    ctx.drawImage(img, 0, 0, el.width, el.height);
+                                  }
+                                };
+                                img.src = dataUrl;
+                              }
+                            });
+                          }
                         } else {
                           artboardCanvasRefs.current.delete(item.id);
+                          // pixelRestoredRef는 handleDeleteItem에서만 삭제 (아이템 진짜 삭제 시)
+                          // 인라인 ref 콜백의 null 호출(매 렌더)에서 삭제하면 매 렌더마다 IndexedDB 재로드 발생
                         }
                       }}
                       style={{
