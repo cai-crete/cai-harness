@@ -1,32 +1,36 @@
-[2026-04-19] sketch-to-image — N24 태블릿/모바일 상태바 숨김
+[2026-04-19] sketch-to-image — N25 Grid 렌더링 수정 + 중간 마우스 버튼 패닝
 
 ## 방금 무엇을 했는지
 
-### N24: 터치 기기에서 하단 상태바 숨김
+### N25-A: Grid 겹침 현상 수정 (InfiniteGrid.tsx)
 
-**수정 방식:** `@media (pointer: coarse)` — 주 입력장치가 터치인 기기 탐지 (화면 크기 무관)
+**진단:**
+- 서브픽셀 렌더링: 터치 offset이 소수점 → Retina(2x DPR) 화면에서 1px 선이 안티앨리어싱으로 이중 선처럼 보임
+- opacity 유사성: Minor(0.08) vs Major(0.14) 차이가 작아 두 그리드가 동급으로 보임
 
-**수정 (2곳):**
-1. `globals.css`: `@variant touch (@media (pointer: coarse));` 추가
-2. `page.tsx` 상태바 div: `touch:hidden` 클래스 추가
+**수정:**
+1. `Math.round(offset.x/y)` — 정수픽셀 snap으로 서브픽셀 방지
+2. Minor opacity 낮춤: light `0.08 → 0.04`, dark `0.08 → 0.06`
+3. Minor grid threshold: `minor < 6px` (zoom < 50%) 시 숨김
+
+### N25-B: 중간 마우스 버튼 패닝 (page.tsx)
+
+**수정:**
+1. `isMiddleButtonPanning` ref 추가
+2. `canvasModeRef` 추가 (cursor 복구용)
+3. `mousedown` 네이티브 리스너: button=1 → `preventDefault()` (브라우저 auto-scroll 커서 방지)
+4. `handlePointerDown`: `e.button === 1` 감지 → 중간버튼 패닝 시작
+5. `handlePointerMove`: `isMiddleButtonPanning` 시 offset 업데이트
+6. `handlePointerUp`: 패닝 종료 후 canvasModeRef 기반 cursor 복구
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/page.tsx ✓ (N13~N24 모두 완료)
-  - N13: 아이템 이동
-  - N14: 커서/선택
-  - N15: 편집(+) 버튼 + barScale 제한
-  - N16: localStorage 영속성
-  - N17: 콘솔 오류 수정
-  - N18: IndexedDB 이중 저장 구조
-  - N19: 픽셀 복원 1회 보장
-  - N20: Hydration Mismatch + 지우개 전체 삭제 버그 수정
-  - N21: Undo/Redo IndexedDB 동기화 + 리사이즈 픽셀 보존 + drawImage 스케일링
-  - N22: persist effect 실행 순서 버그 수정 (isRestoredRef guard)
-  - N23: 태블릿 touch-action:none + onPointerCancel + activeTouchCount 충돌 해결
-  - N24: 터치 기기 상태바 숨김 (pointer: coarse)
+- src/app/page.tsx ✓ (N13~N25 완료)
+  - N13~N24: 이전 세션 완료
+  - N25: Grid 서브픽셀 수정 + 중간 마우스 버튼 패닝
 - src/app/globals.css ✓
+- src/components/InfiniteGrid.tsx ✓
 - src/lib/imageDB.ts ✓
 
 ## 다음에 무엇을 해야 하는지

@@ -118,6 +118,8 @@ export default function App() {
 
   // Canvas mode & items — SSR-safe initial values (localStorage loaded in mount effect)
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('select');
+  const canvasModeRef = useRef<CanvasMode>('select');
+  useEffect(() => { canvasModeRef.current = canvasMode; }, [canvasMode]);
   const [canvasItems, setCanvasItems] = useState<CanvasItem[]>([]);
   const canvasItemsRef = useRef<CanvasItem[]>([]);
   useEffect(() => { canvasItemsRef.current = canvasItems; }, [canvasItems]);
@@ -226,6 +228,9 @@ export default function App() {
   const pixelUndoStack = useRef<PixelEntry[]>([]);
   const pixelRedoStack = useRef<PixelEntry[]>([]);
 
+  // Middle mouse button panning
+  const isMiddleButtonPanning = useRef(false);
+
   // Resize refs
   const isResizingItem = useRef(false);
   const resizeCorner = useRef({ dx: 1, dy: 1 });
@@ -300,6 +305,15 @@ export default function App() {
     const pt = getCanvasCoords(clientX, clientY);
     return { x: pt.x - artboard.x, y: pt.y - artboard.y };
   }, [getCanvasCoords]);
+
+  // ─── Prevent browser middle-click auto-scroll cursor ───
+  useEffect(() => {
+    const el = canvasElRef.current;
+    if (!el) return;
+    const onMouseDown = (e: MouseEvent) => { if (e.button === 1) e.preventDefault(); };
+    el.addEventListener('mousedown', onMouseDown);
+    return () => el.removeEventListener('mousedown', onMouseDown);
+  }, []);
 
   // ─── Wheel zoom (passive:false) ───
   useEffect(() => {
@@ -526,6 +540,17 @@ export default function App() {
   const handlePointerDown = useCallback((e: PointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
 
+    // Middle mouse button → pan (all modes)
+    if (e.button === 1 && e.pointerType !== 'touch') {
+      e.preventDefault();
+      isMiddleButtonPanning.current = true;
+      dragStart.current = { x: e.clientX, y: e.clientY };
+      offsetAtDragStart.current = { ...canvasOffsetRef.current };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      if (canvasElRef.current) canvasElRef.current.style.cursor = 'grabbing';
+      return;
+    }
+
     // Resize handle detection
     if (canvasMode === 'select' && target.classList.contains('resize-handle')) {
       const dx = parseInt(target.dataset.dx ?? '1');
@@ -619,6 +644,15 @@ export default function App() {
   }, [canvasMode, findArtboardAt, getArtboardLocal, getCanvasCoords, penStrokeWidth, eraserStrokeWidth]);
 
   const handlePointerMove = useCallback((e: PointerEvent<HTMLDivElement>) => {
+    // Middle button pan
+    if (isMiddleButtonPanning.current) {
+      updateOffset({
+        x: offsetAtDragStart.current.x + e.clientX - dragStart.current.x,
+        y: offsetAtDragStart.current.y + e.clientY - dragStart.current.y,
+      });
+      return;
+    }
+
     // Update SVG cursor position
     if (canvasMode === 'pen' || canvasMode === 'eraser') {
       setLastMousePos(getCanvasCoords(e.clientX, e.clientY));
@@ -684,6 +718,17 @@ export default function App() {
   }, [canvasMode, getCanvasCoords, getArtboardLocal, penStrokeWidth, eraserStrokeWidth, updateOffset]);
 
   const handlePointerUp = useCallback((e?: React.PointerEvent<HTMLDivElement>) => {
+    // Middle button pan end
+    if (isMiddleButtonPanning.current) {
+      isMiddleButtonPanning.current = false;
+      if (canvasElRef.current) {
+        const mode = canvasModeRef.current;
+        canvasElRef.current.style.cursor =
+          mode === 'pan' ? 'grab' : (mode === 'pen' || mode === 'eraser') ? 'none' : 'default';
+      }
+      return;
+    }
+
     // 터치 포인터 수 감소
     if (e?.pointerType === 'touch') {
       activeTouchCount.current = Math.max(0, activeTouchCount.current - 1);
