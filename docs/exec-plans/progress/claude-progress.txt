@@ -1,34 +1,23 @@
-[2026-04-19] sketch-to-image — N25 Grid 렌더링 수정 + 중간 마우스 버튼 패닝
+[2026-04-19] sketch-to-image — N27 태블릿 화면 꽉 채움 설정
 
 ## 방금 무엇을 했는지
 
-### N25-A: Grid 겹침 현상 수정 (InfiniteGrid.tsx)
+### N27: 태블릿 화면 풀스크린 설정
 
-**진단:**
-- 서브픽셀 렌더링: 터치 offset이 소수점 → Retina(2x DPR) 화면에서 1px 선이 안티앨리어싱으로 이중 선처럼 보임
-- opacity 유사성: Minor(0.08) vs Major(0.14) 차이가 작아 두 그리드가 동급으로 보임
+**N27-A: viewport 메타 태그 추가 (layout.tsx)**
+- `export const viewport: Viewport` 추가 (Next.js App Router 공식 방식)
+- `width: 'device-width'` — iPad 실제 물리 너비 기준 렌더링 (기존: 980px 가상 너비로 축소)
+- `initialScale: 1, maximumScale: 1, userScalable: false` — 브라우저 핀치줌 비활성화 (앱 내 핀치줌과 충돌 방지)
 
-**수정:**
-1. `Math.round(offset.x/y)` — 정수픽셀 snap으로 서브픽셀 방지
-2. Minor opacity 낮춤: light `0.08 → 0.04`, dark `0.08 → 0.06`
-3. Minor grid threshold: `minor < 6px` (zoom < 50%) 시 숨김
-
-### N25-B: 중간 마우스 버튼 패닝 (page.tsx)
-
-**수정:**
-1. `isMiddleButtonPanning` ref 추가
-2. `canvasModeRef` 추가 (cursor 복구용)
-3. `mousedown` 네이티브 리스너: button=1 → `preventDefault()` (브라우저 auto-scroll 커서 방지)
-4. `handlePointerDown`: `e.button === 1` 감지 → 중간버튼 패닝 시작
-5. `handlePointerMove`: `isMiddleButtonPanning` 시 offset 업데이트
-6. `handlePointerUp`: 패닝 종료 후 canvasModeRef 기반 cursor 복구
+**N27-B: h-screen → h-dvh (page.tsx 최외곽 div)**
+- `100vh` = Safari 주소창·툴바 포함 전체 높이 기준 → 하단 잘림 현상
+- `100dvh` = Dynamic Viewport Height = 실제 가시 영역 기준 → 정확히 화면에 꽉 참
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/page.tsx ✓ (N13~N25 완료)
-  - N13~N24: 이전 세션 완료
-  - N25: Grid 서브픽셀 수정 + 중간 마우스 버튼 패닝
+- src/app/layout.tsx ✓ (viewport 메타 태그 추가)
+- src/app/page.tsx ✓ (N13~N27 완료)
 - src/app/globals.css ✓
 - src/components/InfiniteGrid.tsx ✓
 - src/lib/imageDB.ts ✓

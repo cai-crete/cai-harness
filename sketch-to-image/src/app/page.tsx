@@ -616,8 +616,20 @@ export default function App() {
     }
 
     if (canvasMode === 'pen' || canvasMode === 'eraser') {
-      // 손가락 터치는 드로잉 시작 안 함 (핀치 줌 제스처 보호)
-      if (e.pointerType === 'touch') return;
+      // 터치(손가락/손바닥)는 드로잉 불가 → 1손가락 패닝, 2손가락 핀치로 전환
+      if (e.pointerType === 'touch') {
+        activeTouchCount.current += 1;
+        if (activeTouchCount.current === 1) {
+          isDraggingPan.current = true;
+          dragStart.current = { x: e.clientX, y: e.clientY };
+          offsetAtDragStart.current = { ...canvasOffsetRef.current };
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          if (canvasElRef.current) canvasElRef.current.style.cursor = 'grabbing';
+        } else {
+          isDraggingPan.current = false;
+        }
+        return;
+      }
       const artboard = findArtboardAt(e.clientX, e.clientY);
       if (!artboard) return;
 
@@ -690,7 +702,7 @@ export default function App() {
       return;
     }
 
-    if (canvasMode === 'pan' && isDraggingPan.current) {
+    if (isDraggingPan.current) {
       updateOffset({
         x: offsetAtDragStart.current.x + e.clientX - dragStart.current.x,
         y: offsetAtDragStart.current.y + e.clientY - dragStart.current.y,
@@ -750,7 +762,11 @@ export default function App() {
     }
     if (isDraggingPan.current) {
       isDraggingPan.current = false;
-      if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
+      if (canvasElRef.current) {
+        const mode = canvasModeRef.current;
+        canvasElRef.current.style.cursor =
+          mode === 'pan' ? 'grab' : (mode === 'pen' || mode === 'eraser') ? 'none' : 'default';
+      }
       return;
     }
     // Save pixel canvas to localStorage after each stroke
@@ -946,7 +962,7 @@ export default function App() {
   const ctrlPadX = 8 / barScale;
 
   return (
-    <div className={`w-screen h-screen flex flex-col overflow-hidden font-sans ${bg}`}>
+    <div className={`w-screen h-dvh flex flex-col overflow-hidden font-sans ${bg}`}>
 
       <AppHeader theme={theme} onToggleTheme={() => setTheme(t => t === 'light' ? 'dark' : 'light')} />
 
@@ -986,6 +1002,10 @@ export default function App() {
               : (canvasMode === 'pen' || canvasMode === 'eraser') ? 'none'
                 : 'default',
             touchAction: 'none',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            WebkitTouchCallout: 'none' as any,
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
