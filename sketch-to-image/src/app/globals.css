@@ -3,6 +3,7 @@
 @import "tailwindcss";
 
 @variant dark (&:where(.dark, .dark *));
+@variant touch (@media (pointer: coarse));
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;

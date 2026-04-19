@@ -1,38 +1,19 @@
-[2026-04-19] sketch-to-image — N23 태블릿 터치/스타일러스 환경 수정
+[2026-04-19] sketch-to-image — N24 태블릿/모바일 상태바 숨김
 
 ## 방금 무엇을 했는지
 
-### N23: 태블릿 펜슬 및 핀치 줌 버그 수정
+### N24: 터치 기기에서 하단 상태바 숨김
 
-**수정한 3가지 문제:**
+**수정 방식:** `@media (pointer: coarse)` — 주 입력장치가 터치인 기기 탐지 (화면 크기 무관)
 
-1. **스타일러스 획이 계속 이어지는 문제**
-   - 원인: `pointercancel` 미처리 → 브라우저가 터치 인터셉트 시 `pointerup` 없이 포인터 캡처 해제
-   - 수정: `onPointerCancel={handlePointerUp}` 추가 + `touch-action: none` 으로 pointercancel 자체 방지
-
-2. **핀치 줌이 브라우저 웹 줌으로 처리되는 문제**
-   - 원인: React 터치 이벤트가 passive 리스너로 등록 → `e.preventDefault()` 미작동
-   - 수정: 캔버스 div에 `touch-action: none` CSS 추가 → 브라우저 터치 인터셉트 차단
-   - handleTouchMove에서 `e.preventDefault()` 제거 (불필요 + passive 경고 방지)
-
-3. **팬 모드에서 두 손가락 충돌**
-   - 원인: 첫 손가락 패닝 활성화 상태에서 두 번째 손가락이 추가되면 패닝과 핀치 줌이 충돌
-   - 수정: `activeTouchCount` ref 추가, 두 번째 터치 포인터 감지 시 `isDraggingPan = false`로 즉시 취소
-
-**수정 (page.tsx 8곳):**
-1. `activeTouchCount = useRef(0)` 추가
-2. 캔버스 div: `touchAction: 'none'` 스타일 추가
-3. 캔버스 div: `onPointerCancel={handlePointerUp}` 추가
-4. `handlePointerDown` 팬 모드: touch 포인터 2개 이상 시 패닝 취소
-5. `handlePointerDown` 펜/지우개 모드: `pointerType === 'touch'`이면 드로잉 시작 안 함
-6. `handlePointerMove` 드로잉: `pointerType === 'touch'`이면 스킵
-7. `handlePointerUp`: 터치 포인터 수 감소 처리 + optional 파라미터
-8. `handleTouchMove`: `e.preventDefault()` 제거
+**수정 (2곳):**
+1. `globals.css`: `@variant touch (@media (pointer: coarse));` 추가
+2. `page.tsx` 상태바 div: `touch:hidden` 클래스 추가
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/page.tsx ✓ (N13~N23 모두 완료)
+- src/app/page.tsx ✓ (N13~N24 모두 완료)
   - N13: 아이템 이동
   - N14: 커서/선택
   - N15: 편집(+) 버튼 + barScale 제한
@@ -44,6 +25,8 @@
   - N21: Undo/Redo IndexedDB 동기화 + 리사이즈 픽셀 보존 + drawImage 스케일링
   - N22: persist effect 실행 순서 버그 수정 (isRestoredRef guard)
   - N23: 태블릿 touch-action:none + onPointerCancel + activeTouchCount 충돌 해결
+  - N24: 터치 기기 상태바 숨김 (pointer: coarse)
+- src/app/globals.css ✓
 - src/lib/imageDB.ts ✓
 
 ## 다음에 무엇을 해야 하는지

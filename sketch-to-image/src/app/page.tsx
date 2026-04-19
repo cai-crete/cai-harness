@@ -1291,7 +1291,7 @@ export default function App() {
       </div>
 
       {/* Status bar */}
-      <div className={`h-7 flex items-center px-4 gap-4 text-[0.6875rem] text-gray-400 shrink-0 border-t border-gray-200 ${theme === 'dark' ? 'bg-[#111]' : 'bg-white'}`}>
+      <div className={`h-7 flex items-center px-4 gap-4 text-[0.6875rem] text-gray-400 shrink-0 border-t border-gray-200 touch:hidden ${theme === 'dark' ? 'bg-[#111]' : 'bg-white'}`}>
         <span>Mode: <b className="text-gray-600">{canvasMode.toUpperCase()}</b></span>
         <span>Zoom: <b className="text-gray-600">{Math.round(canvasZoom)}%</b></span>
         <span>Items: <b className="text-gray-600">{canvasItems.length}</b></span>
