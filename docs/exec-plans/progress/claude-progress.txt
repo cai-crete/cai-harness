@@ -1,26 +1,31 @@
-[2026-04-19] sketch-to-image — N27 태블릿 화면 꽉 채움 설정
+[2026-04-19] sketch-to-image — N28 텍스트 선택 방지 + 펜 획 DPR 고해상도
 
 ## 방금 무엇을 했는지
 
-### N27: 태블릿 화면 풀스크린 설정
+### N28-A: 텍스트 드래그 선택 방지
+- `sketch-to-image/src/app/page.tsx` line 965 최외곽 div에 `select-none` 클래스 추가
+- iPad에서 RightSidebar "SKETCH TO IMAGE" 레이블 등 UI 텍스트가 펜/손가락 드래그 시 선택(하이라이트)되는 현상 제거
 
-**N27-A: viewport 메타 태그 추가 (layout.tsx)**
-- `export const viewport: Viewport` 추가 (Next.js App Router 공식 방식)
-- `width: 'device-width'` — iPad 실제 물리 너비 기준 렌더링 (기존: 980px 가상 너비로 축소)
-- `initialScale: 1, maximumScale: 1, userScalable: false` — 브라우저 핀치줌 비활성화 (앱 내 핀치줌과 충돌 방지)
-
-**N27-B: h-screen → h-dvh (page.tsx 최외곽 div)**
-- `100vh` = Safari 주소창·툴바 포함 전체 높이 기준 → 하단 잘림 현상
-- `100dvh` = Dynamic Viewport Height = 실제 가시 영역 기준 → 정확히 화면에 꽉 참
+### N28-B: 스케치 캔버스 DPR 고해상도 적용
+- `canvasDprInitRef` (Set<string>) 추가 — canvas별 DPR scale 초기화 완료 추적
+- canvas ref callback에서 물리 픽셀 기준으로 canvas 크기 설정: `el.width = item.width * dpr`, `el.height = item.height * dpr`
+- canvas 크기 변경 직후 `ctx.scale(dpr, dpr)` 1회 적용 (매 렌더 이중 적용 방지)
+- IndexedDB 픽셀 복원 시 CSS 좌표계 기준으로 drawImage: `ctx.drawImage(img, 0, 0, item.width, item.height)` (DPR scale된 context에서 물리 픽셀로 올바르게 매핑)
+- `handleDeleteItem` + 리사이즈 완료(`handlePointerUp`) 시 `canvasDprInitRef` cleanup 추가
+- 드로잉 좌표(`getArtboardLocal`), strokeWidth는 CSS 좌표계 기준 — DPR scale context가 자동으로 물리 픽셀로 매핑하므로 변경 불필요
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/layout.tsx ✓ (viewport 메타 태그 추가)
-- src/app/page.tsx ✓ (N13~N27 완료)
+- src/app/page.tsx ✓ (N13~N28 완료)
+- src/app/layout.tsx ✓
 - src/app/globals.css ✓
 - src/components/InfiniteGrid.tsx ✓
 - src/lib/imageDB.ts ✓
 
+### exec-plan
+- docs/exec-plans/active/exec-plan-N28-text-selection-dpr.md ✓ (active — completed로 이동 필요)
+
 ## 다음에 무엇을 해야 하는지
+- exec-plan-N28 파일을 active/ → completed/ 로 이동 (사용자 확인 후)
 - 사용자 지시 대기

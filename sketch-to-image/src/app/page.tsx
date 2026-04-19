@@ -222,6 +222,8 @@ export default function App() {
   const lastDrawPoint = useRef<Point | null>(null);
   // 아이템당 IndexedDB 픽셀 복원을 1회만 수행하기 위한 guard
   const pixelRestoredRef = useRef<Set<string>>(new Set());
+  // DPR scale 초기화 완료 추적 — canvas resize 후 1회만 scale() 적용
+  const canvasDprInitRef = useRef<Set<string>>(new Set());
 
   // Pixel undo/redo stacks (ImageData — synchronous restore)
   type PixelEntry = { id: string; data: ImageData };
@@ -463,6 +465,7 @@ export default function App() {
     setSelectedItemIds(prev => prev.filter(s => s !== id));
     deleteImageFromDB(`pixel_${id}`);
     pixelRestoredRef.current.delete(id);
+    canvasDprInitRef.current.delete(id);
   }, []);
 
   const handleDownloadItem = useCallback(async (item: CanvasItem) => {
@@ -757,6 +760,7 @@ export default function App() {
         const canvas = artboardCanvasRefs.current.get(resizedId);
         if (canvas) saveImageToDB(`pixel_${resizedId}`, canvas.toDataURL('image/png'));
         pixelRestoredRef.current.delete(resizedId);
+        canvasDprInitRef.current.delete(resizedId);
       }
       return;
     }
@@ -962,7 +966,7 @@ export default function App() {
   const ctrlPadX = 8 / barScale;
 
   return (
-    <div className={`w-screen h-dvh flex flex-col overflow-hidden font-sans ${bg}`}>
+    <div className={`w-screen h-dvh flex flex-col overflow-hidden font-sans select-none ${bg}`}>
 
       <AppHeader theme={theme} onToggleTheme={() => setTheme(t => t === 'light' ? 'dark' : 'light')} />
 
@@ -1053,10 +1057,22 @@ export default function App() {
                       ref={el => {
                         if (el) {
                           artboardCanvasRefs.current.set(item.id, el);
-                          if (el.width !== Math.round(item.width)) el.width = Math.round(item.width);
-                          if (el.height !== Math.round(item.height)) el.height = Math.round(item.height);
+                          const dpr = window.devicePixelRatio || 1;
+                          const physW = Math.round(item.width * dpr);
+                          const physH = Math.round(item.height * dpr);
+                          const needsResize = el.width !== physW || el.height !== physH;
+                          if (needsResize) {
+                            // canvas 크기 변경 시 context transform 자동 리셋 → DPR scale 재적용 필요
+                            el.width = physW;
+                            el.height = physH;
+                            canvasDprInitRef.current.delete(item.id);
+                          }
+                          if (!canvasDprInitRef.current.has(item.id)) {
+                            canvasDprInitRef.current.add(item.id);
+                            const ctx = el.getContext('2d');
+                            if (ctx) ctx.scale(dpr, dpr);
+                          }
                           // 세션 중 1회만 IndexedDB에서 픽셀 복원
-                          // else(null) 호출에서 guard를 삭제하지 않으므로 매 렌더 재로드 방지
                           if (!pixelRestoredRef.current.has(item.id)) {
                             pixelRestoredRef.current.add(item.id);
                             loadImageFromDB(`pixel_${item.id}`).then(dataUrl => {
@@ -1065,9 +1081,9 @@ export default function App() {
                                 img.onload = () => {
                                   const ctx = el.getContext('2d');
                                   if (ctx) {
-                                    // destination-out이 context에 남아있어도 복원이 지우기로 작동하는 현상 방지
                                     ctx.globalCompositeOperation = 'source-over';
-                                    ctx.drawImage(img, 0, 0, el.width, el.height);
+                                    // CSS 좌표계로 그려야 DPR scale된 context가 올바른 물리 픽셀로 매핑
+                                    ctx.drawImage(img, 0, 0, item.width, item.height);
                                   }
                                 };
                                 img.src = dataUrl;
@@ -1076,8 +1092,7 @@ export default function App() {
                           }
                         } else {
                           artboardCanvasRefs.current.delete(item.id);
-                          // pixelRestoredRef는 handleDeleteItem에서만 삭제 (아이템 진짜 삭제 시)
-                          // 인라인 ref 콜백의 null 호출(매 렌더)에서 삭제하면 매 렌더마다 IndexedDB 재로드 발생
+                          // pixelRestoredRef / canvasDprInitRef는 handleDeleteItem에서만 삭제
                         }
                       }}
                       style={{
