@@ -9,11 +9,10 @@ interface InfiniteGridProps {
 }
 
 export function InfiniteGrid({ zoom, offset, theme = 'light' }: InfiniteGridProps) {
-  const minor = 12 * (zoom / 100);
-  const major = 60 * (zoom / 100);
+  const minor = Math.round(12 * (zoom / 100));
+  const major = minor * 5;
   const showMinor = minor >= 6;
 
-  // Round to integer pixels — prevents sub-pixel anti-aliasing on high-DPR screens
   const bpx = Math.round(offset.x);
   const bpy = Math.round(offset.y);
 
@@ -41,7 +40,14 @@ export function InfiniteGrid({ zoom, offset, theme = 'light' }: InfiniteGridProp
       style={{
         backgroundImage: bgImages.join(', '),
         backgroundSize: bgSizes.join(', '),
-        backgroundPosition: `calc(50% + ${bpx}px) calc(50% + ${bpy}px)`,
+        backgroundPosition: [
+          `calc(50% + ${bpx}px) calc(50% + ${bpy}px)`,
+          `calc(50% + ${bpx}px) calc(50% + ${bpy}px)`,
+          ...(showMinor ? [
+            `calc(50% + ${bpx}px) calc(50% + ${bpy}px)`,
+            `calc(50% + ${bpx}px) calc(50% + ${bpy}px)`,
+          ] : []),
+        ].join(', '),
       }}
     />
   );

@@ -1,31 +1,44 @@
-[2026-04-19] sketch-to-image — N28 텍스트 선택 방지 + 펜 획 DPR 고해상도
+[2026-04-21] sketch-to-image — N33 아트보드 grid 중앙 정렬 + 잠금 상태 컨텐츠 패닝
 
 ## 방금 무엇을 했는지
 
-### N28-A: 텍스트 드래그 선택 방지
-- `sketch-to-image/src/app/page.tsx` line 965 최외곽 div에 `select-none` 클래스 추가
-- iPad에서 RightSidebar "SKETCH TO IMAGE" 레이블 등 UI 텍스트가 펜/손가락 드래그 시 선택(하이라이트)되는 현상 제거
+### N33-1: 아트보드 grid 중앙 정렬
+- `page.tsx`: artboard grid backgroundPosition `'0 0...'` → `'center center, center center, center center, center center'`
+- 효과: artboard 크기와 무관하게 중앙에 grid 교차점 위치
 
-### N28-B: 스케치 캔버스 DPR 고해상도 적용
-- `canvasDprInitRef` (Set<string>) 추가 — canvas별 DPR scale 초기화 완료 추적
-- canvas ref callback에서 물리 픽셀 기준으로 canvas 크기 설정: `el.width = item.width * dpr`, `el.height = item.height * dpr`
-- canvas 크기 변경 직후 `ctx.scale(dpr, dpr)` 1회 적용 (매 렌더 이중 적용 방지)
-- IndexedDB 픽셀 복원 시 CSS 좌표계 기준으로 drawImage: `ctx.drawImage(img, 0, 0, item.width, item.height)` (DPR scale된 context에서 물리 픽셀로 올바르게 매핑)
-- `handleDeleteItem` + 리사이즈 완료(`handlePointerUp`) 시 `canvasDprInitRef` cleanup 추가
-- 드로잉 좌표(`getArtboardLocal`), strokeWidth는 CSS 좌표계 기준 — DPR scale context가 자동으로 물리 픽셀로 매핑하므로 변경 불필요
+### N33-2: CanvasItem 타입 확장
+- `canvas.ts`: `contentOffset?: { x: number; y: number }` 필드 추가
+
+### N33-3: content div transform 수정
+- `page.tsx`: artboard content div transform에 `translate(contentOffset)` 추가
+- `translate(ox, oy) scale(contentScale/100)` 형태로 변경
+
+### N33-4: 컨텐츠 패닝 로직
+- refs 추가: `isContentPanning`, `contentPanArtboardId`, `contentPanStartOffset`
+- `handlePointerDown` (pan mode): locked artboard 위에서 드래그 시작 → contentPanning 모드
+- `handlePointerMove`: contentPanning 시 clamp된 contentOffset 업데이트
+  - clamp 범위: x/y 각각 `[-(size * (scale-1)), 0]`
+- `handlePointerUp`: contentPanning 종료
+
+### N33-5: 드로잉 좌표 보정
+- `getDrawCoords` helper 추가: artboard-local 좌표 → contentOffset/contentScale 역변환
+  - `drawPt = (artboardLocalPt - offset) / scale`
+- `handlePointerDown` / `handlePointerMove` pen/eraser 구간에서 적용
+  - `rawPt = getArtboardLocal(...)` → `pt = getDrawCoords(rawPt, artboard)`
+- 효과: contentScale/contentOffset 상태에서도 드로잉 좌표가 시각적 위치와 일치
+
+### N33-6: handleGenerate 주석
+- 배경 이미지 + 스케치 모두 artboard 전체(100% 좌표계)로 캡처되어 전송됨을 명시
+- contentOffset/contentScale은 CSS 시각 전용 → export 로직 변경 없음
+
+### 부가: unused import 정리
+- `deleteImageFromDB` import 제거 (N30-2 이후 미사용 상태였던 것)
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/page.tsx ✓ (N13~N28 완료)
-- src/app/layout.tsx ✓
-- src/app/globals.css ✓
-- src/components/InfiniteGrid.tsx ✓
-- src/lib/imageDB.ts ✓
-
-### exec-plan
-- docs/exec-plans/active/exec-plan-N28-text-selection-dpr.md ✓ (active — completed로 이동 필요)
+- src/app/page.tsx ✓ (N13~N33 완료)
+- src/types/canvas.ts ✓ (contentOffset 타입 추가)
 
 ## 다음에 무엇을 해야 하는지
-- exec-plan-N28 파일을 active/ → completed/ 로 이동 (사용자 확인 후)
 - 사용자 지시 대기

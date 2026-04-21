@@ -7,14 +7,14 @@ import React, {
   useCallback,
   type PointerEvent,
 } from 'react';
-import { Download, Plus, Trash2, Upload } from 'lucide-react';
+import { Download, Lock, Plus, Trash2, Unlock, Upload, ZoomIn, ZoomOut } from 'lucide-react';
 import { InfiniteGrid } from '@/components/InfiniteGrid';
 import LeftToolbar from '@/components/LeftToolbar';
 import AppHeader from '@/components/AppHeader';
 import RightSidebar from '@/components/RightSidebar';
 import { useBlueprintGeneration } from '@/hooks/useBlueprintGeneration';
 import type { CanvasItem, CanvasMode, Point } from '@/types/canvas';
-import { saveImageToDB, loadImageFromDB, deleteImageFromDB } from '@/lib/imageDB';
+import { saveImageToDB, loadImageFromDB } from '@/lib/imageDB';
 
 // ─────────────────────────────────────────────
 // Constants
@@ -47,6 +47,14 @@ function getTouchCenter(touches: React.TouchList): Point {
 
 function clamp(val: number, min: number, max: number) {
   return Math.min(Math.max(val, min), max);
+}
+
+// artboard-local 좌표 → contentOffset/contentScale 적용 후 실제 canvas 드로잉 좌표
+function getDrawCoords(pt: { x: number; y: number }, artboard: { contentScale?: number; contentOffset?: { x: number; y: number } }): { x: number; y: number } {
+  const s = (artboard.contentScale ?? 100) / 100;
+  const ox = artboard.contentOffset?.x ?? 0;
+  const oy = artboard.contentOffset?.y ?? 0;
+  return { x: (pt.x - ox) / s, y: (pt.y - oy) / s };
 }
 
 // ─────────────────────────────────────────────
@@ -183,6 +191,13 @@ export default function App() {
   // Focus mode toggle
   const [focusMode, setFocusMode] = useState<'all' | 'target'>('all');
 
+  // Drag select (rubber band)
+  const [dragSelectRect, setDragSelectRect] = useState<{
+    startX: number; startY: number; endX: number; endY: number;
+  } | null>(null);
+  const dragSelectStartRef = useRef<{ ptX: number; ptY: number } | null>(null);
+  const isDragSelectingRef = useRef(false);
+
   // Artboard upload (new artboard)
   const artboardFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -232,6 +247,11 @@ export default function App() {
 
   // Middle mouse button panning
   const isMiddleButtonPanning = useRef(false);
+
+  // Content panning (locked artboard + pan mode)
+  const isContentPanning = useRef(false);
+  const contentPanArtboardId = useRef<string | null>(null);
+  const contentPanStartOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Resize refs
   const isResizingItem = useRef(false);
@@ -463,7 +483,6 @@ export default function App() {
     setRedoStates([]);
     setCanvasItems(prev => prev.filter(i => i.id !== id));
     setSelectedItemIds(prev => prev.filter(s => s !== id));
-    deleteImageFromDB(`pixel_${id}`);
     pixelRestoredRef.current.delete(id);
     canvasDprInitRef.current.delete(id);
   }, []);
@@ -588,6 +607,7 @@ export default function App() {
         if (item) {
           e.preventDefault();
           setSelectedItemIds([itemId]);
+          if (item.locked) return;
           setHistoryStates(h => [...h, canvasItemsRef.current]);
           setRedoStates([]);
           isMovingItem.current = true;
@@ -596,6 +616,13 @@ export default function App() {
           moveStart.current = { ptX: pt.x, ptY: pt.y, itemX: item.x, itemY: item.y };
           canvasElRef.current?.setPointerCapture(e.pointerId);
         }
+      } else {
+        // 빈 캔버스 → 드래그 선택 시작
+        setSelectedItemIds([]);
+        const pt = getCanvasCoords(e.clientX, e.clientY);
+        dragSelectStartRef.current = { ptX: pt.x, ptY: pt.y };
+        isDragSelectingRef.current = false;
+        canvasElRef.current?.setPointerCapture(e.pointerId);
       }
       return;
     }
@@ -609,6 +636,17 @@ export default function App() {
           if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
           return;
         }
+      }
+      // locked artboard 위에서 pan → 아트보드 내부 컨텐츠 패닝
+      const hoveredArtboard = findArtboardAt(e.clientX, e.clientY);
+      if (hoveredArtboard?.locked) {
+        isContentPanning.current = true;
+        contentPanArtboardId.current = hoveredArtboard.id;
+        contentPanStartOffset.current = hoveredArtboard.contentOffset ?? { x: 0, y: 0 };
+        dragStart.current = { x: e.clientX, y: e.clientY };
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        if (canvasElRef.current) canvasElRef.current.style.cursor = 'grabbing';
+        return;
       }
       isDraggingPan.current = true;
       dragStart.current = { x: e.clientX, y: e.clientY };
@@ -649,7 +687,8 @@ export default function App() {
       activeArtboardId.current = artboard.id;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-      const pt = getArtboardLocal(e.clientX, e.clientY, artboard);
+      const rawPt = getArtboardLocal(e.clientX, e.clientY, artboard);
+      const pt = getDrawCoords(rawPt, artboard);
       applyDrawSettings(ctx, canvasMode, canvasMode === 'pen' ? penStrokeWidth : eraserStrokeWidth, '#111111');
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, (canvasMode === 'pen' ? penStrokeWidth : eraserStrokeWidth) / 2, 0, Math.PI * 2);
@@ -671,6 +710,19 @@ export default function App() {
     // Update SVG cursor position
     if (canvasMode === 'pen' || canvasMode === 'eraser') {
       setLastMousePos(getCanvasCoords(e.clientX, e.clientY));
+    }
+
+    // Drag select rect update
+    if (dragSelectStartRef.current) {
+      const pt = getCanvasCoords(e.clientX, e.clientY);
+      isDragSelectingRef.current = true;
+      setDragSelectRect({
+        startX: dragSelectStartRef.current.ptX,
+        startY: dragSelectStartRef.current.ptY,
+        endX: pt.x,
+        endY: pt.y,
+      });
+      return;
     }
 
     // Item move drag
@@ -705,6 +757,23 @@ export default function App() {
       return;
     }
 
+    if (isContentPanning.current && contentPanArtboardId.current) {
+      const artboard = canvasItemsRef.current.find(i => i.id === contentPanArtboardId.current);
+      if (artboard) {
+        const s = (artboard.contentScale ?? 100) / 100;
+        const maxPanX = -(artboard.width * (s - 1));
+        const maxPanY = -(artboard.height * (s - 1));
+        const rawX = contentPanStartOffset.current.x + (e.clientX - dragStart.current.x);
+        const rawY = contentPanStartOffset.current.y + (e.clientY - dragStart.current.y);
+        setCanvasItems(prev => prev.map(i =>
+          i.id === contentPanArtboardId.current
+            ? { ...i, contentOffset: { x: clamp(rawX, maxPanX, 0), y: clamp(rawY, maxPanY, 0) } }
+            : i
+        ));
+      }
+      return;
+    }
+
     if (isDraggingPan.current) {
       updateOffset({
         x: offsetAtDragStart.current.x + e.clientX - dragStart.current.x,
@@ -720,7 +789,8 @@ export default function App() {
       const canvas = artboardCanvasRefs.current.get(artboard.id);
       if (!canvas) return;
 
-      const pt = getArtboardLocal(e.clientX, e.clientY, artboard);
+      const rawPt = getArtboardLocal(e.clientX, e.clientY, artboard);
+      const pt = getDrawCoords(rawPt, artboard);
       const ctx = canvas.getContext('2d')!;
       const sw = canvasMode === 'pen' ? penStrokeWidth : eraserStrokeWidth;
       applyDrawSettings(ctx, canvasMode, sw, '#111111');
@@ -748,6 +818,37 @@ export default function App() {
     if (e?.pointerType === 'touch') {
       activeTouchCount.current = Math.max(0, activeTouchCount.current - 1);
     }
+
+    if (isContentPanning.current) {
+      isContentPanning.current = false;
+      contentPanArtboardId.current = null;
+      if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
+      return;
+    }
+    // Drag select finalize
+    if (dragSelectStartRef.current) {
+      if (isDragSelectingRef.current) {
+        setDragSelectRect(prev => {
+          if (!prev) return null;
+          const minX = Math.min(prev.startX, prev.endX);
+          const maxX = Math.max(prev.startX, prev.endX);
+          const minY = Math.min(prev.startY, prev.endY);
+          const maxY = Math.max(prev.startY, prev.endY);
+          const selected = canvasItemsRef.current
+            .filter(item =>
+              item.x < maxX && item.x + item.width > minX &&
+              item.y < maxY && item.y + item.height > minY
+            )
+            .map(i => i.id);
+          setSelectedItemIds(selected);
+          return null;
+        });
+      }
+      dragSelectStartRef.current = null;
+      isDragSelectingRef.current = false;
+      return;
+    }
+
     if (isMovingItem.current) {
       isMovingItem.current = false;
       moveItemId.current = null;
@@ -852,6 +953,7 @@ export default function App() {
         });
       }
 
+      // GENERATE: contentOffset/contentScale은 CSS 시각 전용 — 배경+스케치 모두 artboard 전체(100% 좌표계)로 캡처하여 전송
       ctx.drawImage(sketchCanvas, 0, 0);
       sketchBase64 = exportCanvas.toDataURL('image/png').split(',')[1];
     }
@@ -1039,70 +1141,101 @@ export default function App() {
                     zIndex: item.zIndex,
                     background: item.type === 'artboard' ? '#ffffff' : 'transparent',
                     border: '1px solid #dddddd',
+                    overflow: (item.type === 'artboard' || item.type === 'upload') ? 'hidden' : undefined,
                     pointerEvents: (isGenerating || canvasMode !== 'select') ? 'none' : 'all',
                     cursor: canvasMode === 'select' ? 'default' : 'inherit',
                   }}
                   onClick={e => { e.stopPropagation(); setSelectedItemIds([item.id]); }}
                 >
-                  {item.src && (
-                    <img src={item.src} alt="" className="w-full h-full object-cover" draggable={false} />
-                  )}
-                  {item.text && (
-                    <div className="p-1 text-sm">{item.text}</div>
-                  )}
-
-                  {/* Pixel sketch canvas overlay */}
-                  {(item.type === 'artboard' || item.type === 'upload') && (
-                    <canvas
-                      ref={el => {
-                        if (el) {
-                          artboardCanvasRefs.current.set(item.id, el);
-                          const dpr = window.devicePixelRatio || 1;
-                          const physW = Math.round(item.width * dpr);
-                          const physH = Math.round(item.height * dpr);
-                          const needsResize = el.width !== physW || el.height !== physH;
-                          if (needsResize) {
-                            // canvas 크기 변경 시 context transform 자동 리셋 → DPR scale 재적용 필요
-                            el.width = physW;
-                            el.height = physH;
-                            canvasDprInitRef.current.delete(item.id);
-                          }
-                          if (!canvasDprInitRef.current.has(item.id)) {
-                            canvasDprInitRef.current.add(item.id);
-                            const ctx = el.getContext('2d');
-                            if (ctx) ctx.scale(dpr, dpr);
-                          }
-                          // 세션 중 1회만 IndexedDB에서 픽셀 복원
-                          if (!pixelRestoredRef.current.has(item.id)) {
-                            pixelRestoredRef.current.add(item.id);
-                            loadImageFromDB(`pixel_${item.id}`).then(dataUrl => {
-                              if (dataUrl && el) {
-                                const img = new Image();
-                                img.onload = () => {
-                                  const ctx = el.getContext('2d');
-                                  if (ctx) {
-                                    ctx.globalCompositeOperation = 'source-over';
-                                    // CSS 좌표계로 그려야 DPR scale된 context가 올바른 물리 픽셀로 매핑
-                                    ctx.drawImage(img, 0, 0, item.width, item.height);
-                                  }
-                                };
-                                img.src = dataUrl;
-                              }
-                            });
-                          }
-                        } else {
-                          artboardCanvasRefs.current.delete(item.id);
-                          // pixelRestoredRef / canvasDprInitRef는 handleDeleteItem에서만 삭제
-                        }
-                      }}
+                  {(item.type === 'artboard' || item.type === 'upload') ? (
+                    <div
                       style={{
                         position: 'absolute',
                         inset: 0,
-                        width: '100%',
-                        height: '100%',
-                        pointerEvents: 'none',
+                        transform: `translate(${item.contentOffset?.x ?? 0}px, ${item.contentOffset?.y ?? 0}px) scale(${(item.contentScale ?? 100) / 100})`,
+                        transformOrigin: 'top left',
                       }}
-                    />
+                    >
+                      {item.src && (
+                        <img src={item.src} alt="" className="w-full h-full object-contain" draggable={false} />
+                      )}
+
+                      {/* Artboard internal grid */}
+                      <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                          backgroundImage: [
+                            'linear-gradient(to right,  rgba(0,0,0,0.2) 1px, transparent 1px)',
+                            'linear-gradient(to bottom, rgba(0,0,0,0.2) 1px, transparent 1px)',
+                            'linear-gradient(to right,  rgba(0,0,0,0.1) 1px, transparent 1px)',
+                            'linear-gradient(to bottom, rgba(0,0,0,0.1) 1px, transparent 1px)',
+                          ].join(', '),
+                          backgroundSize: '60px 60px, 60px 60px, 12px 12px, 12px 12px',
+                          backgroundPosition: 'center center, center center, center center, center center',
+                        }}
+                      />
+
+                      {/* Pixel sketch canvas overlay */}
+                      <canvas
+                        ref={el => {
+                          if (el) {
+                            artboardCanvasRefs.current.set(item.id, el);
+                            const dpr = window.devicePixelRatio || 1;
+                            const physW = Math.round(item.width * dpr);
+                            const physH = Math.round(item.height * dpr);
+                            const needsResize = el.width !== physW || el.height !== physH;
+                            if (needsResize) {
+                              // canvas 크기 변경 시 context transform 자동 리셋 → DPR scale 재적용 필요
+                              el.width = physW;
+                              el.height = physH;
+                              canvasDprInitRef.current.delete(item.id);
+                            }
+                            if (!canvasDprInitRef.current.has(item.id)) {
+                              canvasDprInitRef.current.add(item.id);
+                              const ctx = el.getContext('2d');
+                              if (ctx) ctx.scale(dpr, dpr);
+                            }
+                            // 세션 중 1회만 IndexedDB에서 픽셀 복원
+                            if (!pixelRestoredRef.current.has(item.id)) {
+                              pixelRestoredRef.current.add(item.id);
+                              loadImageFromDB(`pixel_${item.id}`).then(dataUrl => {
+                                if (dataUrl && el) {
+                                  const img = new Image();
+                                  img.onload = () => {
+                                    const ctx = el.getContext('2d');
+                                    if (ctx) {
+                                      ctx.globalCompositeOperation = 'source-over';
+                                      // CSS 좌표계로 그려야 DPR scale된 context가 올바른 물리 픽셀로 매핑
+                                      ctx.drawImage(img, 0, 0, item.width, item.height);
+                                    }
+                                  };
+                                  img.src = dataUrl;
+                                }
+                              });
+                            }
+                          } else {
+                            artboardCanvasRefs.current.delete(item.id);
+                            // pixelRestoredRef / canvasDprInitRef는 handleDeleteItem에서만 삭제
+                          }
+                        }}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
+                          pointerEvents: 'none',
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      {item.src && (
+                        <img src={item.src} alt="" className="w-full h-full object-cover" draggable={false} />
+                      )}
+                      {item.text && (
+                        <div className="p-1 text-sm">{item.text}</div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
@@ -1133,6 +1266,28 @@ export default function App() {
             </div>
           </div>
 
+          {/* ── Drag select rect overlay — z-[103] ── */}
+          {dragSelectRect && (() => {
+            const left = Math.min(dragSelectRect.startX, dragSelectRect.endX);
+            const top = Math.min(dragSelectRect.startY, dragSelectRect.endY);
+            const width = Math.abs(dragSelectRect.endX - dragSelectRect.startX);
+            const height = Math.abs(dragSelectRect.endY - dragSelectRect.startY);
+            return (
+              <div className="absolute inset-0 pointer-events-none z-[103]">
+                <div style={canvasTransformStyle}>
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      left, top, width, height,
+                      border: '1.5px dashed #4f9cf9',
+                      background: 'rgba(79,156,249,0.08)',
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── Selection border + floating control bar — z-[105] ── */}
           {selectedItemIds.length > 0 && (
             <div className="absolute inset-0 pointer-events-none z-[105]">
@@ -1154,6 +1309,86 @@ export default function App() {
                         borderColor: '#1d4ed8',
                       }}
                     >
+                      {/* Artboard top-left control bar (zoom + lock) */}
+                      {(item.type === 'artboard' || item.type === 'upload') && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: `${-56 / barScale}px`,
+                            left: 0,
+                            height: `${ctrlBarH}px`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: `${ctrlGap}px`,
+                            padding: `0 ${ctrlPadX}px`,
+                            background: theme === 'dark' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.85)',
+                            backdropFilter: 'blur(8px)',
+                            borderRadius: `${999 / barScale}px`,
+                            border: `${1 / barScale}px solid rgba(0,0,0,0.08)`,
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                            pointerEvents: 'auto',
+                            whiteSpace: 'nowrap',
+                          }}
+                          onPointerDown={e => e.stopPropagation()}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <button
+                            title="확대 (+10%)"
+                            disabled={(item.contentScale ?? 100) >= 200}
+                            style={{
+                              width: `${ctrlBtnSize}px`, height: `${ctrlBtnSize}px`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              borderRadius: `${999 / barScale}px`,
+                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                              color: theme === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)',
+                              opacity: (item.contentScale ?? 100) >= 200 ? 0.3 : 1,
+                            }}
+                            onClick={() => setCanvasItems(prev => prev.map(i =>
+                              i.id === id ? { ...i, contentScale: Math.min(200, (i.contentScale ?? 100) + 10) } : i
+                            ))}
+                          >
+                            <ZoomIn style={{ width: `${ctrlIconSize}px`, height: `${ctrlIconSize}px` }} />
+                          </button>
+                          <button
+                            title="축소 (-10%)"
+                            disabled={(item.contentScale ?? 100) <= 100}
+                            style={{
+                              width: `${ctrlBtnSize}px`, height: `${ctrlBtnSize}px`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              borderRadius: `${999 / barScale}px`,
+                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                              color: theme === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)',
+                              opacity: (item.contentScale ?? 100) <= 100 ? 0.3 : 1,
+                            }}
+                            onClick={() => setCanvasItems(prev => prev.map(i =>
+                              i.id === id ? { ...i, contentScale: Math.max(100, (i.contentScale ?? 100) - 10) } : i
+                            ))}
+                          >
+                            <ZoomOut style={{ width: `${ctrlIconSize}px`, height: `${ctrlIconSize}px` }} />
+                          </button>
+                          <button
+                            title={item.locked ? '잠금 해제' : '이동 잠금'}
+                            style={{
+                              width: `${ctrlBtnSize}px`, height: `${ctrlBtnSize}px`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              borderRadius: `${999 / barScale}px`,
+                              background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+                              color: item.locked
+                                ? (theme === 'dark' ? '#60a5fa' : '#2563eb')
+                                : (theme === 'dark' ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)'),
+                            }}
+                            onClick={() => setCanvasItems(prev => prev.map(i =>
+                              i.id === id ? { ...i, locked: !i.locked } : i
+                            ))}
+                          >
+                            {item.locked
+                              ? <Lock style={{ width: `${ctrlIconSize}px`, height: `${ctrlIconSize}px` }} />
+                              : <Unlock style={{ width: `${ctrlIconSize}px`, height: `${ctrlIconSize}px` }} />
+                            }
+                          </button>
+                        </div>
+                      )}
+
                       {/* Floating control bar */}
                       <div
                         style={{

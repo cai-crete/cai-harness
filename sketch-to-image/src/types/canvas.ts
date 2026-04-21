@@ -34,4 +34,7 @@ export interface CanvasItem {
   sketchStyle?: string;
   sketchAspectRatio?: string;
   sketchResolution?: string;
+  contentScale?: number;
+  contentOffset?: { x: number; y: number };
+  locked?: boolean;
 }
