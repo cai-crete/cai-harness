@@ -1,44 +1,22 @@
-[2026-04-21] sketch-to-image — N33 아트보드 grid 중앙 정렬 + 잠금 상태 컨텐츠 패닝
+[2026-04-21] sketch-to-image — N34 우측 사이드바 버튼 rounded-[0.75rem] 변경
 
 ## 방금 무엇을 했는지
 
-### N33-1: 아트보드 grid 중앙 정렬
-- `page.tsx`: artboard grid backgroundPosition `'0 0...'` → `'center center, center center, center center, center center'`
-- 효과: artboard 크기와 무관하게 중앙에 grid 교차점 위치
-
-### N33-2: CanvasItem 타입 확장
-- `canvas.ts`: `contentOffset?: { x: number; y: number }` 필드 추가
-
-### N33-3: content div transform 수정
-- `page.tsx`: artboard content div transform에 `translate(contentOffset)` 추가
-- `translate(ox, oy) scale(contentScale/100)` 형태로 변경
-
-### N33-4: 컨텐츠 패닝 로직
-- refs 추가: `isContentPanning`, `contentPanArtboardId`, `contentPanStartOffset`
-- `handlePointerDown` (pan mode): locked artboard 위에서 드래그 시작 → contentPanning 모드
-- `handlePointerMove`: contentPanning 시 clamp된 contentOffset 업데이트
-  - clamp 범위: x/y 각각 `[-(size * (scale-1)), 0]`
-- `handlePointerUp`: contentPanning 종료
-
-### N33-5: 드로잉 좌표 보정
-- `getDrawCoords` helper 추가: artboard-local 좌표 → contentOffset/contentScale 역변환
-  - `drawPt = (artboardLocalPt - offset) / scale`
-- `handlePointerDown` / `handlePointerMove` pen/eraser 구간에서 적용
-  - `rawPt = getArtboardLocal(...)` → `pt = getDrawCoords(rawPt, artboard)`
-- 효과: contentScale/contentOffset 상태에서도 드로잉 좌표가 시각적 위치와 일치
-
-### N33-6: handleGenerate 주석
-- 배경 이미지 + 스케치 모두 artboard 전체(100% 좌표계)로 캡처되어 전송됨을 명시
-- contentOffset/contentScale은 CSS 시각 전용 → export 로직 변경 없음
-
-### 부가: unused import 정리
-- `deleteImageFromDB` import 제거 (N30-2 이후 미사용 상태였던 것)
+### N34: 우측 사이드바 버튼 border-radius 변경
+- `RightSidebar.tsx`: 헤더 레이블 컨테이너 div `rounded-full` → `rounded-[0.75rem]`
+- `RightSidebar.tsx`: 패널 토글 버튼 `rounded-full` → `rounded-[0.75rem]`
+- `SketchToImagePanel.tsx`: `toggleBtn` 헬퍼(MODE 버튼) `rounded-full` → `rounded-[0.75rem]`
+- `SketchToImagePanel.tsx`: CRE-TE STYLE 버튼(A~NONE) `rounded-full` → `rounded-[0.75rem]`
+- `SketchToImagePanel.tsx`: Aspect Ratio 버튼 `rounded-full` → `rounded-[0.75rem]`
+- `SketchToImagePanel.tsx`: Resolution 버튼 `rounded-full` → `rounded-[0.75rem]`
+- `SketchToImagePanel.tsx`: GENERATE 버튼 `rounded-full` → `rounded-[0.75rem]`
+- 패널 컨테이너(`rounded-[1.25rem]`)와 스타일 상세 X 버튼(`rounded-full`)은 유지
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/app/page.tsx ✓ (N13~N33 완료)
-- src/types/canvas.ts ✓ (contentOffset 타입 추가)
+- src/components/RightSidebar.tsx ✓ (N34 완료)
+- src/components/panels/SketchToImagePanel.tsx ✓ (N34 완료)
 
 ## 다음에 무엇을 해야 하는지
 - 사용자 지시 대기

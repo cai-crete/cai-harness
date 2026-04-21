@@ -46,7 +46,7 @@ const SketchToImagePanel: React.FC<SketchToImagePanelProps> = ({
   onGenerate,
 }) => {
   const toggleBtn = (active: boolean, extra = '') =>
-    `flex-1 h-[2.75rem] rounded-full font-display tracking-widest uppercase font-medium text-[0.875rem] transition-all border border-black/10 dark:border-white/10 ${active ? 'bg-black/5 dark:bg-white/5 text-black dark:text-white' : 'bg-transparent text-black dark:text-white hover:bg-black/5 dark:hover:bg-white/5'} ${extra}`;
+    `flex-1 h-[2.75rem] rounded-[0.75rem] font-display tracking-widest uppercase font-medium text-[0.875rem] transition-all border border-black/10 dark:border-white/10 ${active ? 'bg-black/5 dark:bg-white/5 text-black dark:text-white' : 'bg-transparent text-black dark:text-white hover:bg-black/5 dark:hover:bg-white/5'} ${extra}`;
 
   return (
     <aside className="h-full w-full rounded-[1.25rem] flex flex-col overflow-hidden bg-white/80 dark:bg-black/80 backdrop-blur-sm border border-black/10 dark:border-white/10">
@@ -94,7 +94,7 @@ const SketchToImagePanel: React.FC<SketchToImagePanelProps> = ({
                       setSketchStyle(next);
                       setActiveDetailStyle(next !== 'NONE' ? next : null);
                     }}
-                    className={`h-[2.75rem] rounded-full font-display tracking-widest uppercase font-medium text-[0.875rem] border border-black/10 dark:border-white/10 transition-all ${sketchStyle === style ? 'bg-black/5 dark:bg-white/5' : 'bg-white/80 dark:bg-black/80 hover:bg-black/5 dark:hover:bg-white/5'}`}
+                    className={`h-[2.75rem] rounded-[0.75rem] font-display tracking-widest uppercase font-medium text-[0.875rem] border border-black/10 dark:border-white/10 transition-all ${sketchStyle === style ? 'bg-black/5 dark:bg-white/5' : 'bg-white/80 dark:bg-black/80 hover:bg-black/5 dark:hover:bg-white/5'}`}
                   >
                     {style}
                   </button>
@@ -138,7 +138,7 @@ const SketchToImagePanel: React.FC<SketchToImagePanelProps> = ({
             <div className="flex gap-2">
               {['1:1', '4:3', '16:9'].map(ratio => (
                 <button key={ratio} onClick={() => setAspectRatio(prev => prev === ratio ? null : ratio)}
-                  className={`flex-1 h-[2.25rem] rounded-full font-display tracking-widest uppercase font-medium text-[0.75rem] transition-all border border-black/10 dark:border-white/10 ${aspectRatio === ratio ? 'bg-black/5 dark:bg-white/5' : 'bg-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}>
+                  className={`flex-1 h-[2.25rem] rounded-[0.75rem] font-display tracking-widest uppercase font-medium text-[0.75rem] transition-all border border-black/10 dark:border-white/10 ${aspectRatio === ratio ? 'bg-black/5 dark:bg-white/5' : 'bg-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}>
                   {ratio}
                 </button>
               ))}
@@ -151,7 +151,7 @@ const SketchToImagePanel: React.FC<SketchToImagePanelProps> = ({
             <div className="flex gap-2">
               {['FAST', 'NORMAL', 'HIGH'].map(res => (
                 <button key={res} onClick={() => setResolution(prev => prev.startsWith(res) ? '' : res + ' QUALITY')}
-                  className={`flex-1 h-[2.25rem] rounded-full font-display tracking-widest uppercase font-medium text-[0.75rem] transition-all border border-black/10 dark:border-white/10 ${resolution.startsWith(res) ? 'bg-black/5 dark:bg-white/5' : 'bg-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}>
+                  className={`flex-1 h-[2.25rem] rounded-[0.75rem] font-display tracking-widest uppercase font-medium text-[0.75rem] transition-all border border-black/10 dark:border-white/10 ${resolution.startsWith(res) ? 'bg-black/5 dark:bg-white/5' : 'bg-transparent hover:bg-black/5 dark:hover:bg-white/5'}`}>
                   {res}
                 </button>
               ))}
