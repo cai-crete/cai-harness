@@ -131,10 +131,10 @@ const LeftToolbar: React.FC<LeftToolbarProps> = ({
           </button>
           {showStrokePanel === 'pen' && (
             <div className={strokePopupCls} style={pillShadow}>
-              {([0.5, 1, 2, 4, 6] as const).map(size => (
-                <button key={size} onClick={() => setPenStrokeWidth(size)}
+              {([0.5, 1, 2, 4, 6] as const).map((strokeVal, i) => (
+                <button key={strokeVal} onClick={() => setPenStrokeWidth(strokeVal)}
                   className="w-8 h-8 flex items-center justify-center rounded-full hover:cursor-pointer hover:bg-black/5 dark:hover:bg-white/5">
-                  {renderStrokeDot(size, penStrokeWidth === size)}
+                  {renderStrokeDot([2, 4, 6, 8, 10][i], penStrokeWidth === strokeVal)}
                 </button>
               ))}
             </div>
@@ -155,10 +155,10 @@ const LeftToolbar: React.FC<LeftToolbarProps> = ({
           </button>
           {showStrokePanel === 'eraser' && (
             <div className={strokePopupCls} style={pillShadow}>
-              {([10, 15, 20, 25, 30] as const).map(size => (
-                <button key={size} onClick={() => setEraserStrokeWidth(size)}
+              {([10, 15, 20, 25, 30] as const).map((strokeVal, i) => (
+                <button key={strokeVal} onClick={() => setEraserStrokeWidth(strokeVal)}
                   className="w-8 h-8 flex items-center justify-center rounded-full hover:cursor-pointer hover:bg-black/5 dark:hover:bg-white/5">
-                  {renderStrokeDot(size, eraserStrokeWidth === size)}
+                  {renderStrokeDot([2, 4, 6, 8, 10][i], eraserStrokeWidth === strokeVal)}
                 </button>
               ))}
             </div>
