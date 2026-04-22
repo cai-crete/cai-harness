@@ -184,6 +184,12 @@ export default function App() {
   const [eraserStrokeWidth, setEraserStrokeWidth] = useState(DEFAULT_ERASER_STROKE_WIDTH);
   const [showStrokePanel, setShowStrokePanel] = useState<'pen' | 'eraser' | null>(null);
 
+  // Text tool — in-place editing state
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const editingTextIdRef = useRef<string | null>(null);
+  useEffect(() => { editingTextIdRef.current = editingTextId; }, [editingTextId]);
+  const inlineTextareaRef = useRef<HTMLTextAreaElement>(null);
+
   // History state
   const [historyStates, setHistoryStates] = useState<CanvasItem[][]>([]);
   const [redoStates, setRedoStates] = useState<CanvasItem[][]>([]);
@@ -197,6 +203,13 @@ export default function App() {
   } | null>(null);
   const dragSelectStartRef = useRef<{ ptX: number; ptY: number } | null>(null);
   const isDragSelectingRef = useRef(false);
+
+  // Text drag create
+  const [textDragRect, setTextDragRect] = useState<{
+    startX: number; startY: number; endX: number; endY: number;
+  } | null>(null);
+  const textDragStartRef = useRef<{ ptX: number; ptY: number } | null>(null);
+  const isTextDraggingRef = useRef(false);
 
   // Artboard upload (new artboard)
   const artboardFileInputRef = useRef<HTMLInputElement>(null);
@@ -594,6 +607,16 @@ export default function App() {
       return;
     }
 
+    // Commit active in-place text edit on click outside (select mode)
+    if (canvasMode === 'select' && editingTextIdRef.current && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+      const editId = editingTextIdRef.current;
+      const item = canvasItemsRef.current.find(i => i.id === editId);
+      if (item && !item.text?.trim()) {
+        setCanvasItems(prev => prev.filter(i => i.id !== editId));
+      }
+      setEditingTextId(null);
+    }
+
     // Item move (select mode — not on resize handle)
     if (canvasMode === 'select') {
       let el: HTMLElement | null = target;
@@ -695,6 +718,34 @@ export default function App() {
       ctx.fill();
       lastDrawPoint.current = pt;
     }
+    if (canvasMode === 'text') {
+      if ((e.target as HTMLElement).tagName === 'TEXTAREA') return;
+      // Commit any active edit when clicking outside → deactivate only, no new box
+      if (editingTextIdRef.current) {
+        const editId = editingTextIdRef.current;
+        const item = canvasItemsRef.current.find(i => i.id === editId);
+        if (item && !item.text?.trim()) {
+          setCanvasItems(prev => prev.filter(i => i.id !== editId));
+        }
+        setEditingTextId(null);
+        return;
+      }
+      const pt = getCanvasCoords(e.clientX, e.clientY);
+      const hitText = canvasItemsRef.current.find(i =>
+        i.type === 'text' &&
+        pt.x >= i.x && pt.x <= i.x + i.width &&
+        pt.y >= i.y && pt.y <= i.y + i.height
+      );
+      if (hitText) {
+        setEditingTextId(hitText.id);
+        setSelectedItemIds([hitText.id]);
+      } else {
+        textDragStartRef.current = { ptX: pt.x, ptY: pt.y };
+        isTextDraggingRef.current = false;
+        canvasElRef.current?.setPointerCapture(e.pointerId);
+      }
+      return;
+    }
   }, [canvasMode, findArtboardAt, getArtboardLocal, getCanvasCoords, penStrokeWidth, eraserStrokeWidth]);
 
   const handlePointerMove = useCallback((e: PointerEvent<HTMLDivElement>) => {
@@ -710,6 +761,19 @@ export default function App() {
     // Update SVG cursor position
     if (canvasMode === 'pen' || canvasMode === 'eraser') {
       setLastMousePos(getCanvasCoords(e.clientX, e.clientY));
+    }
+
+    // Text drag create rect update
+    if (textDragStartRef.current) {
+      const pt = getCanvasCoords(e.clientX, e.clientY);
+      isTextDraggingRef.current = true;
+      setTextDragRect({
+        startX: textDragStartRef.current.ptX,
+        startY: textDragStartRef.current.ptY,
+        endX: pt.x,
+        endY: pt.y,
+      });
+      return;
     }
 
     // Drag select rect update
@@ -825,6 +889,39 @@ export default function App() {
       if (canvasElRef.current) canvasElRef.current.style.cursor = 'grab';
       return;
     }
+    // Text drag finalize — create canvas item directly
+    if (textDragStartRef.current) {
+      const startPt = textDragStartRef.current;
+      const wasDragging = isTextDraggingRef.current;
+      setTextDragRect(null);
+      textDragStartRef.current = null;
+      isTextDraggingRef.current = false;
+
+      let x = startPt.ptX;
+      let y = startPt.ptY;
+      let w = 200;
+      let h = 40;
+      if (wasDragging && e) {
+        const pt = getCanvasCoords(e.clientX, e.clientY);
+        x = Math.min(startPt.ptX, pt.x);
+        y = Math.min(startPt.ptY, pt.y);
+        w = Math.max(Math.abs(pt.x - startPt.ptX), 120);
+        h = Math.max(Math.abs(pt.y - startPt.ptY), 32);
+      }
+      const newItem: CanvasItem = {
+        id: `text-${Date.now()}`,
+        type: 'text',
+        x, y, width: w, height: h,
+        text: '',
+        zIndex: canvasItemsRef.current.length,
+      };
+      setHistoryStates(hs => [...hs, canvasItemsRef.current]);
+      setCanvasItems(prev => [...prev, newItem]);
+      setSelectedItemIds([newItem.id]);
+      setEditingTextId(newItem.id);
+      return;
+    }
+
     // Drag select finalize
     if (dragSelectStartRef.current) {
       if (isDragSelectingRef.current) {
@@ -1030,6 +1127,7 @@ export default function App() {
   // ─── Keyboard shortcuts ───
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'TEXTAREA') return;
       if (e.key === 'v' || e.key === 'V') setCanvasMode('select');
       if (e.key === 'h' || e.key === 'H') setCanvasMode('pan');
       if (e.key === 'p' || e.key === 'P') setCanvasMode('pen');
@@ -1106,7 +1204,8 @@ export default function App() {
           style={{
             cursor: canvasMode === 'pan' ? 'grab'
               : (canvasMode === 'pen' || canvasMode === 'eraser') ? 'none'
-                : 'default',
+                : canvasMode === 'text' ? 'text'
+                  : 'default',
             touchAction: 'none',
             userSelect: 'none',
             WebkitUserSelect: 'none',
@@ -1142,10 +1241,17 @@ export default function App() {
                     background: item.type === 'artboard' ? '#ffffff' : 'transparent',
                     border: '1px solid #dddddd',
                     overflow: (item.type === 'artboard' || item.type === 'upload') ? 'hidden' : undefined,
-                    pointerEvents: (isGenerating || canvasMode !== 'select') ? 'none' : 'all',
+                    pointerEvents: (isGenerating || (canvasMode !== 'select' && editingTextId !== item.id)) ? 'none' : 'all',
                     cursor: canvasMode === 'select' ? 'default' : 'inherit',
                   }}
                   onClick={e => { e.stopPropagation(); setSelectedItemIds([item.id]); }}
+                  onDoubleClick={e => {
+                    if (item.type === 'text') {
+                      e.stopPropagation();
+                      setEditingTextId(item.id);
+                      setSelectedItemIds([item.id]);
+                    }
+                  }}
                 >
                   {(item.type === 'artboard' || item.type === 'upload') ? (
                     <div
@@ -1232,8 +1338,45 @@ export default function App() {
                       {item.src && (
                         <img src={item.src} alt="" className="w-full h-full object-cover" draggable={false} />
                       )}
-                      {item.text && (
-                        <div className="p-1 text-sm">{item.text}</div>
+                      {editingTextId === item.id ? (
+                        <textarea
+                          ref={inlineTextareaRef}
+                          autoFocus
+                          defaultValue={item.text ?? ''}
+                          onKeyDown={e => {
+                            e.stopPropagation();
+                            if (e.key === 'Escape') {
+                              const val = (e.target as HTMLTextAreaElement).value.trim();
+                              if (!val) setCanvasItems(prev => prev.filter(i => i.id !== item.id));
+                              setEditingTextId(null);
+                            }
+                          }}
+                          onChange={e => {
+                            setCanvasItems(prev => prev.map(i =>
+                              i.id === item.id ? { ...i, text: e.target.value } : i
+                            ));
+                          }}
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none',
+                            resize: 'none',
+                            padding: '8px 12px',
+                            fontFamily: 'sans-serif',
+                            fontSize: 14,
+                            pointerEvents: 'all',
+                            cursor: 'text',
+                            width: '100%',
+                            height: '100%',
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      ) : (
+                        item.text && (
+                          <div style={{ padding: '8px 12px', fontFamily: 'sans-serif', fontSize: 14, whiteSpace: 'pre-wrap', wordBreak: 'break-word', width: '100%', height: '100%' }}>{item.text}</div>
+                        )
                       )}
                     </>
                   )}
@@ -1281,6 +1424,28 @@ export default function App() {
                       left, top, width, height,
                       border: '1.5px dashed #4f9cf9',
                       background: 'rgba(79,156,249,0.08)',
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Text drag create rect overlay — z-[103] ── */}
+          {textDragRect && (() => {
+            const left = Math.min(textDragRect.startX, textDragRect.endX);
+            const top = Math.min(textDragRect.startY, textDragRect.endY);
+            const width = Math.abs(textDragRect.endX - textDragRect.startX);
+            const height = Math.abs(textDragRect.endY - textDragRect.startY);
+            return (
+              <div className="absolute inset-0 pointer-events-none z-[103]">
+                <div style={canvasTransformStyle}>
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      left, top, width, height,
+                      border: '1.5px solid #4f9cf9',
+                      background: 'none',
                     }}
                   />
                 </div>

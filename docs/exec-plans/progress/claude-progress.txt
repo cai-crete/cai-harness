@@ -1,22 +1,17 @@
-[2026-04-21] sketch-to-image — N34 우측 사이드바 버튼 rounded-[0.75rem] 변경
+[2026-04-22] sketch-to-image — N38-patch 텍스트 외부 클릭 동작 수정
 
 ## 방금 무엇을 했는지
 
-### N34: 우측 사이드바 버튼 border-radius 변경
-- `RightSidebar.tsx`: 헤더 레이블 컨테이너 div `rounded-full` → `rounded-[0.75rem]`
-- `RightSidebar.tsx`: 패널 토글 버튼 `rounded-full` → `rounded-[0.75rem]`
-- `SketchToImagePanel.tsx`: `toggleBtn` 헬퍼(MODE 버튼) `rounded-full` → `rounded-[0.75rem]`
-- `SketchToImagePanel.tsx`: CRE-TE STYLE 버튼(A~NONE) `rounded-full` → `rounded-[0.75rem]`
-- `SketchToImagePanel.tsx`: Aspect Ratio 버튼 `rounded-full` → `rounded-[0.75rem]`
-- `SketchToImagePanel.tsx`: Resolution 버튼 `rounded-full` → `rounded-[0.75rem]`
-- `SketchToImagePanel.tsx`: GENERATE 버튼 `rounded-full` → `rounded-[0.75rem]`
-- 패널 컨테이너(`rounded-[1.25rem]`)와 스타일 상세 X 버튼(`rounded-full`)은 유지
+텍스트 편집 중 외부 클릭 시 새 텍스트 박스 생성 방지:
+- `handlePointerDown` text 모드 분기에서 `editingTextIdRef.current`가 있을 때
+  commit 후 `return`을 추가 → 같은 클릭으로 드래그/새 박스 생성이 시작되지 않음
+- 기존: 외부 클릭 → 편집 종료 + 드래그 시작(새 박스 가능)
+- 변경: 외부 클릭 → 편집 종료만 (return)
 
 ## 어디까지 완료됐는지
 
 ### Node App (sketch-to-image/)
-- src/components/RightSidebar.tsx ✓ (N34 완료)
-- src/components/panels/SketchToImagePanel.tsx ✓ (N34 완료)
+- src/app/page.tsx ✓ (N13~N38+patch 완료)
 
 ## 다음에 무엇을 해야 하는지
 - 사용자 지시 대기
